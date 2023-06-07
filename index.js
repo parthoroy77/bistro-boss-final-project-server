@@ -28,6 +28,7 @@ async function run() {
     // Connect the client to the server	(optional starting in v4.7)
     await client.connect();
 
+
     const menuCollection = client.db("bistroDB").collection("menu");
     const reviewCollection = client.db("bistroDB").collection("reviews");
     app.get("/menu", async (req, res) => {
@@ -51,5 +52,5 @@ async function run() {
 run().catch(console.dir);
 
 app.listen(port, () => {
-  console.log(port);
+  console.log(`bistro is running ${port}`);
 });
