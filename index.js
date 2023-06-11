@@ -102,7 +102,6 @@ async function run() {
       const email = req.params.email;
       if (req.decoded.email !== email) {
         return res.send({ admin: false });
-        console.log("object");
       }
       const query = { email: email };
       const user = await usersCollection.findOne(query);
@@ -180,7 +179,7 @@ async function run() {
     // create payment intent
     app.post("/create-payment-intent", verifyJWT, async (req, res) => {
       const { price } = req.body;
-      const amount = price * 100;
+      const amount = parseFloat(price) * 100;
       const paymentIntent = await stripe.paymentIntents.create({
         amount: amount,
         currency: "usd",
@@ -194,13 +193,65 @@ async function run() {
     // payment collections
     app.post("/payments", verifyJWT, async (req, res) => {
       const payment = req.body;
+      payment.menuItems = payment.menuItems.map(id => new ObjectId(id))
       const insertedResult = await paymentCollection.insertOne(payment);
-      // const query = {
-      //   _id: { $in: payment.cartItemsId.map((id) => new ObjectId(id)) },
-      // };
-      const query = {email: payment.email}
+      const query = {
+        _id: { $in: payment.cartItemsId.map((id) => new ObjectId(id)) },
+      };
+      // const query = { email: payment.email };
       const deletedResult = await cartCollection.deleteMany(query);
       res.send({ insertedResult, deletedResult });
+    });
+
+    app.get("/admin-stats", verifyJWT, verifyAdmin, async (req, res) => {
+      const users = await usersCollection.estimatedDocumentCount();
+      const products = await menuCollection.estimatedDocumentCount();
+      const orders = await paymentCollection.estimatedDocumentCount();
+
+      // best way to get sum of a field is to use group and sum operator
+      const payments = await paymentCollection.find().toArray();
+      const revenue = payments.reduce((sum, payment) => sum + payment.price, 0);
+
+      res.send({
+        users,
+        products,
+        orders,
+        revenue,
+      });
+    });
+
+    app.get("/order-stats",  async (req, res) => {
+      const pipeline = [
+        {
+          $lookup: {
+            from: "menu",
+            localField: "menuItems",
+            foreignField: "_id",
+            as: "menuItemsData",
+          },
+        },
+        {
+          $unwind: "$menuItemsData",
+        },
+        {
+          $group: {
+            _id: "$menuItemsData.category",
+            count: { $sum: 1 },
+            total: { $sum: "$menuItemsData.price" },
+          },
+        },
+        {
+          $project: {
+            category: "$_id",
+            count: 1,
+            total: { $round: ["$total", 2] },
+            _id: 0,
+          },
+        },
+      ];
+
+      const result = await paymentCollection.aggregate(pipeline).toArray();
+      res.send(result);
     });
 
     // Send a ping to confirm a successful connection
